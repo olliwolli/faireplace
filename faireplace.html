@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+<head>
+<link rel=stylesheet type="text/css" href="css2.css">
+</head>
+<body>
+<title>FAI Replace</title>
+
+<h1>FAI Replace</h1>
+
+<h2>Abstract</h2>
+
+<p>This script is an addition to FAI. It makes templating easier and allows central configuration management. To get a hold of configuration values which are not centralized in the FAI installation this script helps. The script allows changing configuration values for the installation clients and server like the used LDAP server, Mail server, syslog server and whatever you want centrally in just a few class based configuration files. This makes it easier to migrate one FAI configuration space from one environment to another and avoids errors.</p>
+
+<h2>Overview</h2>
+
+<p>What this script actually does is to replace strings in files in the FAI configuration space. If it is correctly hooked into the various installation stages of FAI is possible to use this string replacement in FAI scripts, hooks and files. Additionally it is also possible to use the templating script on the FAI server it self.</p>
+
+<p>Quickstart:</p>
+
+<ul>
+<li>Put fai-replace in the <tt>$FAI/bin</tt> directory</li>
+<li>Create the hooks specified using (<tt>fai-replace -a -m [files|scripts|hooks]</tt>)</li>
+<li>Create <tt>*.rpl</tt> files in the <tt>$FAI/config</tt> directory which have classnames (<tt>$FAI/config/FAIBASE.rpl</tt>)</li> 
+<li>Use special strings in like <tt>[$ FAIBASE.version %]</tt> in your scripts, hooks, files</li>
+</ul>
+
+<h2>Example</h2>
+
+<p>Here is some exemplary usage of the fai-replacescript. Put this script in <tt>$FAI/bin</tt> so you get <tt>$FAI/bin/fai-replace</tt> Create <tt>CLASSNAME.rpl</tt> in <tt>$FAI/config/</tt> Add the installation client to this class.
+Setup perl hashes in the <tt>.rpl</tt> file (the hase-name must be the same as CLASSNAME):</p>
+<em>$FAI/config/FAIBASE.rpl</em>:
+<pre>
+$FAIBASE{"systemname"} = "utopiaplanitita";
+$FAIBASE{"comment"} = "A comment";
+</pre>
+<em>$FAI/config/CLASSNAME.rpl:</em>
+<pre># special hash for importing variables from other classes
+$CLASSNAME{"requires"} = ("FAIBASE");</pre>
+<pre># special hash array of filenames for replacment
+# usually is not necessary because they can be found automatically using the automode
+$CLASSNAME{"files"} = ("/etc/motd", "/etc/smb/samba.conf");</pre>
+<pre>$CLASSNAME{"version"} = "1.1";
+$CLASSNAME{"sysname_ver"} = $FAIBASE{"systemname"}.$CLASSNAME{"version"};</pre>
+<p>Use the expression [% CLASSNAME.version %] in any file in the following subdirectories of the FAI config space: /files /hooks /scripts , e.g.:</p>
+<em>$FAI/files/etc/motd/CLASSNAME:</em>
+<pre>Welcome to [% systemname %] version [% CLASSNAME.version %]
+A little comment from FAIBAS [% FAIBASE.comment %]</pre>
+<p>If the CLASSNAME of template file can be derived from its path you can omit CLASSNAME an just write [% version %]
+Add a hook appropriate for each stage of string replacement:</p>
+<em>hooks/action.FAIBASE:</em>
+<pre>$FAI/bin/fai-replace -m scripts -a
+$FAI/bin/fai-replace -m hooks -a</pre>
+<em>hooks/savelog.FAIBASE:</em>
+<pre>$FAI/bin/fai-replace -m files -a</pre>
+<p>The fai hooks must be in the right stage of the installation, scripts and hook templates need to be replaced before they are executed. File templates need to be replaced after they were transfered to the install client
+</p>
+
+<h2>Automode</h2>
+
+<p>The automode (option <tt>-a</tt>) in fai-replace means that the script will find all the files that belong to a class in the specified processing mode. Automode is inactive by default. <tt>fai-replace -m scripts -a</tt> will go through all defined Fai classes for the installation client and find all scripts belonging to every class and replace all found strings in the scripts which have the form <tt>[% CLASSNAME.attributename %]</tt>. If <tt>-a</tt> is not given as option it is necessary to define the files which should be considered for replacement by hand using the special hash "files". So you need something like this in your <tt>$FAI/config/CLASSNAME.rpl</tt>:</p>
+<pre>$CLASSNAME{"files"} = ("/etc/motd", "/etc/samba/smb.conf"); # the RHS is an perl array.</pre>
+
+<h2>fai-replace on the FAI server</h2>
+
+<p>fai-replace supports a server mode where the same script can be run to template files on the FAI server. I use this to update my <tt>pammount.conf.xml</tt> file to make the users mount network shares according to the groups they belong to in the LDAP. The clients the rsync this <tt>pammount.conf.xml</tt> file regulary. To use this feature it is necassary to specify the server- command line options:</p>
+<p>Example:</p>
+<pre>/srv/fai/bin/fai-replace -m server --server-config-directory=/srv/fai/config/config \
+--server-target-path=/home/getconfig/etc --server-post-scripts-path=/srv/fai/bin</pre>
+<p>Server config directory is the directory with the <tt>*rpl</tt> files you use in FAI. If you use the nfs root you have to point it the, if you use SVN make a checkout before each run of fai-replace.
+Server target-path is the path where the templates are. Templates have the same name as the real filename put are hidden and have the tmpl extension, example:</p>
+<pre>/home/getconfig/etc/security/.pammount.conf.xml.tmpl</pre>
+<p>Optionally you can run so-called post scripts on the template files. These are scripts that are run after the template replacing of fai-replace was done, they should accept a filename as input and leave a modified file with the same filename as given, example:</p>
+<pre>/srv/fai/sbin/pammount.conf.xml.post</pre>
+<p>
+For my example this script will get the LDAP data from the LDAP server and insert mount directives for pammount according to the users group memberships.
+The idea of this server mode is the possibitiy to have central configuration accross server and clients.</p>
+
+<h2>Usage</h2>
+ 
+<pre>
+Usage: fai-replace [OPTION] ... -m [server|hooks|scripts|files] ...
+
+-m [server|hooks|scripts|files]       Processing mode
+--processing-mode=[server|...]        Same as above
+
+Optional Paramaeters
+
+-c class[.class]                      Define classes.
+-t target_dir                         Copy files relativ to target_dir.
+-s path,--fai-config-sapce path       FAI config space
+-a,--automode                         Automode
+-l logfile, --logfile=logfile         Logfile
+--max-template-size                   Maximum file size to be considerated for replacing
+--exclude-extensions=gif,jpg[,etc]    Exclude files of this type from replacing
+-v,--verbose                          Create verbose output.
+-D,--debug                            Create debug output.
+-h,--help                             Print this help
+
+Server mode options
+
+--server-config-directory             Directory where the *.rpl files are
+--server-target-path                  Directory where the templates are
+--server-post-scripts-path            Directory where the post processing scripts are</pre>
+
+<h2>Debugging and logging</h2>
+
+<p>Debugging is turn on by default. The script will log into the same directory as the normal FAI installation procedure. The log files will be called according to the mode the script is run in, e.g.: <tt>$LOGDIR/replace-scripts.rpl</tt>. If you want to turn debugging off, you need to edit the $debug variable in the script accordingly.</p>
+Perldoc
+
+Get a man page with the command:
+<pre>perldoc fai-replace</pre>
+
+
+<br/>
+</body>
+</html>
